@@ -101,4 +101,4 @@ This project serves as evidence that AI-assisted development is now capable of h
 
 ## License
 
-MIT License. See LICENSE file for details.
+[Apache 2.0 License](LICENSE)
