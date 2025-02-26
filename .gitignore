@@ -1,0 +1,12 @@
+# Ignore bin directory with compiled output
+bin/
+
+# Object files
+*.o
+
+# Backup files
+*~
+
+# Editor specific files
+.vscode/
+.idea/
