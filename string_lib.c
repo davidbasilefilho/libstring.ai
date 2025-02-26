@@ -1,46 +1,86 @@
-#define _POSIX_C_SOURCE 200809L  /* Required for strtok_r */
+#define _GNU_SOURCE  // For memmem
+#define _POSIX_C_SOURCE 200809L
 /**
  * @file string_lib.c
- * @brief Implementation of custom C23 string library
- * @author GitHub Copilot
+ * @brief Optimized C23 string library implementation with SSO
  */
-
 #include "string_lib.h"
 #include <string.h>
 #include <ctype.h>
+#include <errno.h>
 
 // Initial capacity for new strings
 #define INITIAL_CAPACITY 16
+// Use cache line size for optimal memory alignment
+#define CACHE_LINE_SIZE 64
 
-/**
- * Helper function to ensure string has enough capacity
- * Returns true if capacity is sufficient or reallocation succeeded
- * Returns false if memory allocation failed
- */
-static bool ensure_capacity(String* str, size_t needed_capacity) {
+// Helper macros for safer access
+#define STRING_DATA(str) ((str)->is_small ? (str)->stack.data : (str)->heap.data)
+#define STRING_CAPACITY(str) ((str)->is_small ? SSO_SIZE : (str)->heap.capacity)
+
+// Convert from heap to stack storage if possible
+static inline void try_shrink_to_small(String* str) {
+    if (!str || str->is_small || str->length > SSO_SIZE) return;
+    
+    char* old_data = str->heap.data;
+    memcpy(str->stack.data, old_data, str->length + 1);
+    free(old_data);
+    str->is_small = 1;
+}
+
+// Convert from stack to heap storage when needed
+static inline bool convert_to_heap(String* str, size_t needed_capacity) {
+    if (!str) return false;
+    if (!str->is_small) return true;  // Already on heap
+    
+    // Round up to multiple of CACHE_LINE_SIZE for better memory alignment
+    size_t new_capacity = (needed_capacity + CACHE_LINE_SIZE - 1) & ~(CACHE_LINE_SIZE - 1);
+    
+    // Allocate new heap storage
+    char* new_data = aligned_alloc(CACHE_LINE_SIZE, new_capacity);
+    if (!new_data) {
+        errno = ENOMEM;
+        return false;
+    }
+    
+    // Copy from stack to heap
+    memcpy(new_data, str->stack.data, str->length + 1);
+    str->heap.data = new_data;
+    str->heap.capacity = new_capacity;
+    str->is_small = 0;
+    return true;
+}
+
+static inline bool ensure_capacity(String* str, size_t needed_capacity) {
     if (!str) return false;
     
-    // If current capacity is enough, return
-    if (str->capacity >= needed_capacity) return true;
+    // Check if capacity is already sufficient
+    if (STRING_CAPACITY(str) >= needed_capacity) return true;
     
-    // Calculate new capacity (double current capacity until sufficient)
-    size_t new_capacity = str->capacity;
+    // Need to switch from stack to heap?
+    if (str->is_small) {
+        return convert_to_heap(str, needed_capacity);
+    }
+    
+    // Already on heap, just resize
+    size_t new_capacity = str->heap.capacity;
     while (new_capacity < needed_capacity) {
-        new_capacity *= 2;
-        
-        // Check for overflow
-        if (new_capacity < str->capacity) {
-            new_capacity = needed_capacity;  // In case of overflow, use exact size
+        if (__builtin_mul_overflow(new_capacity, 2, &new_capacity)) {
+            new_capacity = needed_capacity;
         }
     }
     
-    // Reallocate buffer
-    char* new_data = realloc(str->data, new_capacity);
-    if (!new_data) return false;
+    // Round up to multiple of CACHE_LINE_SIZE for better memory alignment
+    new_capacity = (new_capacity + CACHE_LINE_SIZE - 1) & ~(CACHE_LINE_SIZE - 1);
     
-    // Update string struct
-    str->data = new_data;
-    str->capacity = new_capacity;
+    char* new_data = realloc(str->heap.data, new_capacity);
+    if (!new_data) {
+        errno = ENOMEM;
+        return false;
+    }
+    
+    str->heap.data = new_data;
+    str->heap.capacity = new_capacity;
     return true;
 }
 
@@ -48,20 +88,11 @@ String* string_new(const char* initial_value) {
     String* str = malloc(sizeof(String));
     if (!str) return NULL;
     
-    // Initialize with a default capacity
-    str->capacity = INITIAL_CAPACITY;
+    // Initialize as small string
+    str->is_small = 1;
     str->length = 0;
-    str->data = malloc(str->capacity);
+    str->stack.data[0] = '\0';
     
-    if (!str->data) {
-        free(str);
-        return NULL;
-    }
-    
-    // Initialize with empty string
-    str->data[0] = '\0';
-    
-    // If initial value provided, set it
     if (initial_value) {
         if (!string_set(str, initial_value)) {
             string_free(str);
@@ -76,45 +107,50 @@ String* string_with_capacity(size_t capacity) {
     String* str = malloc(sizeof(String));
     if (!str) return NULL;
     
-    // Initialize with the given capacity (or minimum capacity if too small)
-    size_t actual_capacity = (capacity < 1) ? INITIAL_CAPACITY : capacity;
-    str->capacity = actual_capacity;
-    str->length = 0;
-    str->data = malloc(str->capacity);
-    
-    if (!str->data) {
-        free(str);
-        return NULL;
+    if (capacity <= SSO_SIZE) {
+        // Initialize as small string
+        str->is_small = 1;
+        str->length = 0;
+        str->stack.data[0] = '\0';
+    } else {
+        // Initialize as heap string
+        size_t actual_capacity = (capacity + CACHE_LINE_SIZE - 1) & ~(CACHE_LINE_SIZE - 1);
+        str->heap.data = aligned_alloc(CACHE_LINE_SIZE, actual_capacity);
+        
+        if (!str->heap.data) {
+            free(str);
+            errno = ENOMEM;
+            return NULL;
+        }
+        
+        str->is_small = 0;
+        str->length = 0;
+        str->heap.capacity = actual_capacity;
+        str->heap.data[0] = '\0';
     }
-    
-    // Initialize with empty string
-    str->data[0] = '\0';
     
     return str;
 }
 
 void string_free(String* str) {
     if (!str) return;
-    
-    // Free the data pointer if it exists
-    if (str->data) {
-        free(str->data);
+    if (!str->is_small) {
+        free(str->heap.data);
     }
-    
-    // Free the string struct
     free(str);
 }
 
+// Optimized core functions
 size_t string_length(const String* str) {
     return str ? str->length : 0;
 }
 
 size_t string_capacity(const String* str) {
-    return str ? str->capacity : 0;
+    return str ? STRING_CAPACITY(str) : 0;
 }
 
 const char* string_cstr(const String* str) {
-    return str ? str->data : NULL;
+    return str ? STRING_DATA(str) : NULL;
 }
 
 bool string_is_empty(const String* str) {
@@ -123,44 +159,33 @@ bool string_is_empty(const String* str) {
 
 bool string_append(String* str, const String* other) {
     if (!str || !other) return false;
-    
-    return string_append_cstr(str, other->data);
+    return string_append_cstr(str, STRING_DATA(other));
 }
 
 bool string_append_cstr(String* str, const char* cstr) {
     if (!str || !cstr) return false;
     
     size_t cstr_len = strlen(cstr);
+    if (cstr_len == 0) return true;  // Early return for empty strings
     
-    // Check if we need more capacity
     if (!ensure_capacity(str, str->length + cstr_len + 1)) {
         return false;
     }
     
-    // Copy characters to the end of the string
-    memcpy(str->data + str->length, cstr, cstr_len + 1);
-    
-    // Update length
+    memcpy(STRING_DATA(str) + str->length, cstr, cstr_len + 1);
     str->length += cstr_len;
-    
     return true;
 }
 
 bool string_append_char(String* str, char c) {
     if (!str) return false;
     
-    // Check if we need more capacity
     if (!ensure_capacity(str, str->length + 2)) {
         return false;
     }
     
-    // Append character and null terminator
-    str->data[str->length] = c;
-    str->data[str->length + 1] = '\0';
-    
-    // Update length
-    str->length++;
-    
+    STRING_DATA(str)[str->length] = c;
+    STRING_DATA(str)[++str->length] = '\0';
     return true;
 }
 
@@ -168,229 +193,440 @@ bool string_set(String* str, const char* cstr) {
     if (!str || !cstr) return false;
     
     size_t cstr_len = strlen(cstr);
-    
-    // Check if we need more capacity
     if (!ensure_capacity(str, cstr_len + 1)) {
         return false;
     }
     
-    // Copy the new string
-    memcpy(str->data, cstr, cstr_len + 1);
-    
-    // Update length
+    memcpy(STRING_DATA(str), cstr, cstr_len + 1);
     str->length = cstr_len;
-    
     return true;
 }
 
 void string_clear(String* str) {
     if (!str) return;
-    
-    // Just set the first character to null terminator
-    if (str->data) {
-        str->data[0] = '\0';
-    }
-    
-    // Set length to 0
+    STRING_DATA(str)[0] = '\0';
     str->length = 0;
 }
 
+#ifdef __SSE4_2__
+#include <nmmintrin.h>
+// SSE4.2 optimized string compare
 int string_compare(const String* str1, const String* str2) {
     if (!str1 && !str2) return 0;
     if (!str1) return -1;
     if (!str2) return 1;
     
-    return strcmp(str1->data, str2->data);
+    // For very short strings, use standard memcmp to avoid overhead
+    if (str1->length < 16 || str2->length < 16) {
+        size_t min_len = (str1->length < str2->length) ? str1->length : str2->length;
+        int result = memcmp(STRING_DATA(str1), STRING_DATA(str2), min_len);
+        return result != 0 ? result : (str1->length - str2->length);
+    }
+    
+    size_t len = (str1->length < str2->length) ? str1->length : str2->length;
+    size_t i = 0;
+    
+    // Process 16 bytes at a time using SSE4.2
+    while (i + 16 <= len) {
+        __m128i xmm1 = _mm_loadu_si128((__m128i*)(STRING_DATA(str1) + i));
+        __m128i xmm2 = _mm_loadu_si128((__m128i*)(STRING_DATA(str2) + i));
+        
+        int result = _mm_cmpestri(
+            xmm1, 16,
+            xmm2, 16,
+            _SIDD_CMP_EQUAL_EACH | _SIDD_NEGATIVE_POLARITY | _SIDD_LEAST_SIGNIFICANT
+        );
+        
+        if (result != 16) {
+            // Found a differing character
+            return (unsigned char)STRING_DATA(str1)[i + result] - (unsigned char)STRING_DATA(str2)[i + result];
+        }
+        
+        i += 16;
+    }
+    
+    // Handle remaining bytes
+    if (i < len) {
+        int result = memcmp(STRING_DATA(str1) + i, STRING_DATA(str2) + i, len - i);
+        return result != 0 ? result : (str1->length - str2->length);
+    }
+    
+    // Strings are equal up to the minimum length, so the shorter one is less
+    return str1->length - str2->length;
+}
+
+// SSE4.2 optimized string equality check
+bool string_equals(const String* str1, const String* str2) {
+    if (str1 == str2) return true;
+    if (!str1 || !str2) return false;
+    if (str1->length != str2->length) return false;
+    
+    // For very short strings, use standard memcmp to avoid overhead
+    if (str1->length < 16) {
+        return memcmp(STRING_DATA(str1), STRING_DATA(str2), str1->length) == 0;
+    }
+    
+    size_t i = 0;
+    size_t len = str1->length;
+    
+    // Process 16 bytes at a time using SSE4.2
+    while (i + 16 <= len) {
+        __m128i xmm1 = _mm_loadu_si128((__m128i*)(STRING_DATA(str1) + i));
+        __m128i xmm2 = _mm_loadu_si128((__m128i*)(STRING_DATA(str2) + i));
+        
+        int diff = _mm_cmpestri(
+            xmm1, 16,
+            xmm2, 16,
+            _SIDD_CMP_EQUAL_EACH | _SIDD_NEGATIVE_POLARITY | _SIDD_LEAST_SIGNIFICANT
+        );
+        
+        if (diff != 16) {
+            return false;  // Found a difference
+        }
+        
+        i += 16;
+    }
+    
+    // Handle remaining bytes
+    return memcmp(STRING_DATA(str1) + i, STRING_DATA(str2) + i, len - i) == 0;
+}
+
+// SSE4.2 optimized string find
+ptrdiff_t string_find_cstr(const String* str, const char* substr) {
+    if (!str || !substr) return -1;
+    
+    size_t substr_len = strlen(substr);
+    if (substr_len == 0) return 0;
+    if (substr_len > str->length) return -1;
+    
+    // For very short needles or haystacks, use standard memmem
+    if (substr_len < 8 || str->length < 16) {
+        char* found = memmem(STRING_DATA(str), str->length, substr, substr_len);
+        return found ? (found - STRING_DATA(str)) : -1;
+    }
+    
+    // For longer needles, use SSE4.2 string search
+    const int mode = _SIDD_CMP_EQUAL_ORDERED | _SIDD_UBYTE_OPS | _SIDD_LEAST_SIGNIFICANT;
+    __m128i needle;
+    
+    // Load up to 16 bytes of the needle
+    if (substr_len >= 16) {
+        needle = _mm_loadu_si128((__m128i*)substr);
+    } else {
+        char temp[16] = {0};
+        memcpy(temp, substr, substr_len);
+        needle = _mm_loadu_si128((__m128i*)temp);
+    }
+    
+    size_t i = 0;
+    while (i <= str->length - substr_len) {
+        size_t remaining = str->length - i;
+        if (remaining < 16) {
+            // Fall back to standard search for the last few bytes
+            char* found = memmem(STRING_DATA(str) + i, remaining, substr, substr_len);
+            return found ? (found - STRING_DATA(str)) : -1;
+        }
+        
+        __m128i haystack = _mm_loadu_si128((__m128i*)(STRING_DATA(str) + i));
+        int index = _mm_cmpestri(needle, substr_len, haystack, 16, mode);
+        
+        if (index < 16) {
+            // Potential match - verify it's complete
+            if (i + index + substr_len <= str->length &&
+                memcmp(STRING_DATA(str) + i + index, substr, substr_len) == 0) {
+                return i + index;
+            }
+            // Move forward to check after this partial match
+            i += index + 1;
+        } else {
+            // No match in this 16-byte segment
+            i += 16 - substr_len + 1;
+        }
+    }
+    
+    return -1;
+}
+
+// SSE4.2 optimized string to uppercase
+void string_to_upper(String* str) {
+    if (!str || !str->length) return;
+    
+    const size_t len = str->length;
+    char* data = STRING_DATA(str);
+    
+    // For very short strings, use standard implementation
+    if (len < 16) {
+        for (size_t i = 0; i < len; i++) {
+            data[i] = toupper((unsigned char)data[i]);
+        }
+        return;
+    }
+    
+    // Use SIMD to process 16 bytes at a time
+    size_t i = 0;
+    __m128i lower_a = _mm_set1_epi8('a');
+    __m128i lower_z = _mm_set1_epi8('z');
+    __m128i to_upper = _mm_set1_epi8('A' - 'a');
+    
+    for (; i + 16 <= len; i += 16) {
+        __m128i chars = _mm_loadu_si128((__m128i*)(data + i));
+        
+        // Check which chars are in range 'a'..'z'
+        __m128i is_lower = _mm_and_si128(
+            _mm_cmpgt_epi8(chars, _mm_sub_epi8(lower_a, _mm_set1_epi8(1))),
+            _mm_cmpgt_epi8(_mm_add_epi8(lower_z, _mm_set1_epi8(1)), chars)
+        );
+        
+        // Convert to uppercase if in range
+        __m128i adjustment = _mm_and_si128(is_lower, to_upper);
+        __m128i result = _mm_add_epi8(chars, adjustment);
+        
+        _mm_storeu_si128((__m128i*)(data + i), result);
+    }
+    
+    // Process remaining characters
+    for (; i < len; i++) {
+        data[i] = toupper((unsigned char)data[i]);
+    }
+}
+
+// SSE4.2 optimized string to lowercase
+void string_to_lower(String* str) {
+    if (!str || !str->length) return;
+    
+    const size_t len = str->length;
+    char* data = STRING_DATA(str);
+    
+    // For very short strings, use standard implementation
+    if (len < 16) {
+        for (size_t i = 0; i < len; i++) {
+            data[i] = tolower((unsigned char)data[i]);
+        }
+        return;
+    }
+    
+    // Use SIMD to process 16 bytes at a time
+    size_t i = 0;
+    __m128i upper_a = _mm_set1_epi8('A');
+    __m128i upper_z = _mm_set1_epi8('Z');
+    __m128i to_lower = _mm_set1_epi8('a' - 'A');
+    
+    for (; i + 16 <= len; i += 16) {
+        __m128i chars = _mm_loadu_si128((__m128i*)(data + i));
+        
+        // Check which chars are in range 'A'..'Z'
+        __m128i is_upper = _mm_and_si128(
+            _mm_cmpgt_epi8(chars, _mm_sub_epi8(upper_a, _mm_set1_epi8(1))),
+            _mm_cmpgt_epi8(_mm_add_epi8(upper_z, _mm_set1_epi8(1)), chars)
+        );
+        
+        // Convert to lowercase if in range
+        __m128i adjustment = _mm_and_si128(is_upper, to_lower);
+        __m128i result = _mm_add_epi8(chars, adjustment);
+        
+        _mm_storeu_si128((__m128i*)(data + i), result);
+    }
+    
+    // Process remaining characters
+    for (; i < len; i++) {
+        data[i] = tolower((unsigned char)data[i]);
+    }
+}
+#else
+int string_compare(const String* str1, const String* str2) {
+    if (!str1 && !str2) return 0;
+    if (!str1) return -1;
+    if (!str2) return 1;
+    return memcmp(STRING_DATA(str1), STRING_DATA(str2), 
+                 (str1->length < str2->length) ? str1->length : str2->length);
 }
 
 bool string_equals(const String* str1, const String* str2) {
-    return string_compare(str1, str2) == 0;
-}
-
-char string_char_at(const String* str, size_t index) {
-    if (!str || index >= str->length) return '\0';
-    return str->data[index];
-}
-
-ptrdiff_t string_find(const String* str, const String* substr) {
-    if (!str || !substr) return -1;
-    
-    return string_find_cstr(str, substr->data);
+    if (str1 == str2) return true;
+    if (!str1 || !str2) return false;
+    return str1->length == str2->length && 
+           memcmp(STRING_DATA(str1), STRING_DATA(str2), str1->length) == 0;
 }
 
 ptrdiff_t string_find_cstr(const String* str, const char* substr) {
     if (!str || !substr) return -1;
     
-    char* found = strstr(str->data, substr);
-    
-    if (!found) return -1;
-    
-    return found - str->data;
+    char* found = memmem(STRING_DATA(str), str->length, substr, strlen(substr));
+    return found ? (found - STRING_DATA(str)) : -1;
 }
 
-String* string_substr(const String* str, size_t start, size_t length) {
-    if (!str) return NULL;
-    
-    // Adjust start and length if they're out of bounds
-    if (start >= str->length) {
-        start = 0;
-        length = 0;
-    }
-    
-    if (start + length > str->length) {
-        length = str->length - start;
-    }
-    
-    // Create a new string
-    String* result = string_with_capacity(length + 1);
-    if (!result) return NULL;
-    
-    // Copy the substring
-    memcpy(result->data, str->data + start, length);
-    result->data[length] = '\0';
-    result->length = length;
-    
-    return result;
-}
-
-void string_trim(String* str) {
-    if (!str || !str->data || str->length == 0) return;
-    
-    // Find first non-whitespace character from the beginning
-    size_t start = 0;
-    while (start < str->length && isspace((unsigned char)str->data[start])) {
-        start++;
-    }
-    
-    // If the entire string is whitespace
-    if (start == str->length) {
-        string_clear(str);
-        return;
-    }
-    
-    // Find first non-whitespace character from the end
-    size_t end = str->length - 1;
-    while (end > start && isspace((unsigned char)str->data[end])) {
-        end--;
-    }
-    
-    size_t new_length = end - start + 1;
-    
-    // Shift string to the beginning if needed
-    if (start > 0) {
-        memmove(str->data, str->data + start, new_length);
-    }
-    
-    // Add null terminator
-    str->data[new_length] = '\0';
-    str->length = new_length;
-}
-
+// Standard implementations for systems without SSE4.2
 void string_to_upper(String* str) {
-    if (!str || !str->data) return;
+    if (!str || !str->length) return;
     
+    char* data = STRING_DATA(str);
     for (size_t i = 0; i < str->length; i++) {
-        str->data[i] = toupper((unsigned char)str->data[i]);
+        data[i] = toupper((unsigned char)data[i]);
     }
 }
 
 void string_to_lower(String* str) {
-    if (!str || !str->data) return;
+    if (!str || !str->length) return;
     
+    char* data = STRING_DATA(str);
     for (size_t i = 0; i < str->length; i++) {
-        str->data[i] = tolower((unsigned char)str->data[i]);
+        data[i] = tolower((unsigned char)data[i]);
+    }
+}
+#endif
+
+// Add an optimized trim function that automatically switches to small string
+// optimization when possible
+void string_trim(String* str) {
+    if (!str || !str->length) return;
+    
+    char *start = STRING_DATA(str);
+    char *end = STRING_DATA(str) + str->length - 1;
+    
+    while (start <= end && isspace((unsigned char)*start)) start++;
+    while (end > start && isspace((unsigned char)*end)) end--;
+    
+    size_t new_length = end - start + 1;
+    
+    // Check if we can convert to small string after trimming
+    if (!str->is_small && new_length <= SSO_SIZE) {
+        // Convert to small string
+        char* heap_data = str->heap.data;
+        char temp_buf[SSO_SIZE + 1];
+        
+        // Copy trimmed data to a temporary buffer
+        memcpy(temp_buf, start, new_length);
+        temp_buf[new_length] = '\0';
+        
+        // Convert to small string
+        str->is_small = 1;
+        memcpy(str->stack.data, temp_buf, new_length + 1);
+        
+        // Free heap data
+        free(heap_data);
+    } else if (start > STRING_DATA(str)) {
+        // Move the data in place
+        memmove(STRING_DATA(str), start, new_length);
+    }
+    
+    STRING_DATA(str)[new_length] = '\0';
+    str->length = new_length;
+    
+    // Try to shrink memory usage
+    if (!str->is_small && str->heap.capacity > new_length * 2 && 
+        new_length > SSO_SIZE && new_length < 1024) {
+        
+        // Shrink the buffer to avoid wasting memory
+        size_t new_capacity = (new_length * 2 + CACHE_LINE_SIZE - 1) & ~(CACHE_LINE_SIZE - 1);
+        char* new_data = realloc(str->heap.data, new_capacity);
+        
+        if (new_data) {
+            str->heap.data = new_data;
+            str->heap.capacity = new_capacity;
+        }
     }
 }
 
-String** string_split(const String* str, const char* delim, size_t* count) {
-    if (!str || !delim || !count) return NULL;
+String* string_substr(const String* str, size_t start, size_t length) {
+    if (!str || start >= str->length) return NULL;
     
-    // Initialize count to 0
-    *count = 0;
-    
-    // Empty string case
-    if (str->length == 0) {
-        return NULL;
-    }
-    
-    // Count occurrences of delimiter to determine array size
-    const char* tmp = str->data;
-    const char* token = strstr(tmp, delim);
-    size_t delim_len = strlen(delim);
-    size_t num_splits = 1;  // At least one substring
-    
-    while (token) {
-        num_splits++;
-        tmp = token + delim_len;
-        token = strstr(tmp, delim);
-    }
-    
-    // Allocate array for results
-    String** result = malloc(num_splits * sizeof(String*));
+    length = (start + length > str->length) ? (str->length - start) : length;
+    String* result = string_with_capacity(length + 1);
     if (!result) return NULL;
     
-    // Split the string
-    char* str_copy = strdup(str->data);  // Create copy for strtok
-    if (!str_copy) {
-        free(result);
+    memcpy(STRING_DATA(result), STRING_DATA(str) + start, length);
+    STRING_DATA(result)[length] = '\0';
+    result->length = length;
+    return result;
+}
+
+String** string_split(const String* str, const char* delim, size_t* count) {
+    if (!str || !delim || !count || !str->length) {
+        if (count) *count = 0;
         return NULL;
     }
     
-    char* saveptr;
-    char* token_str = strtok_r(str_copy, delim, &saveptr);
+    size_t delim_len = strlen(delim);
+    if (!delim_len) {
+        if (count) *count = 0;
+        return NULL;
+    }
+    
+    // Count splits
+    size_t num_splits = 1;
+    const char* pos = STRING_DATA(str);
+    while ((pos = memmem(pos, str->length - (pos - STRING_DATA(str)), delim, delim_len))) {
+        num_splits++;
+        pos += delim_len;
+    }
+    
+    String** result = calloc(num_splits, sizeof(String*));
+    if (!result) {
+        if (count) *count = 0;
+        return NULL;
+    }
+    
+    // Split string
+    const char* start = STRING_DATA(str);
     size_t i = 0;
     
-    while (token_str) {
-        result[i] = string_new(token_str);
+    while (start < STRING_DATA(str) + str->length) {
+        const char* end = memmem(start, str->length - (start - STRING_DATA(str)), delim, delim_len);
+        if (!end) end = STRING_DATA(str) + str->length;
+        
+        size_t part_len = end - start;
+        result[i] = string_with_capacity(part_len + 1);
         if (!result[i]) {
-            // Clean up on error
-            for (size_t j = 0; j < i; j++) {
-                string_free(result[j]);
-            }
+            for (size_t j = 0; j < i; j++) string_free(result[j]);
             free(result);
-            free(str_copy);
+            if (count) *count = 0;
             return NULL;
         }
         
+        memcpy(STRING_DATA(result[i]), start, part_len);
+        STRING_DATA(result[i])[part_len] = '\0';
+        result[i]->length = part_len;
+        
+        start = end + delim_len;
         i++;
-        token_str = strtok_r(NULL, delim, &saveptr);
+        if (!end) break;
     }
     
-    free(str_copy);
     *count = num_splits;
     return result;
 }
 
 String* string_join(String** strs, size_t count, const char* delim) {
-    if (!strs || count == 0 || !delim) return NULL;
+    if (!strs || !count || !delim) return NULL;
     
-    // Calculate total length
     size_t delim_len = strlen(delim);
     size_t total_len = 0;
     
     for (size_t i = 0; i < count; i++) {
         if (strs[i]) {
-            total_len += strs[i]->length;
-            
-            // Add delimiter length except for the last element
-            if (i < count - 1) {
-                total_len += delim_len;
+            if (__builtin_add_overflow(total_len, strs[i]->length, &total_len)) {
+                errno = EOVERFLOW;
+                return NULL;
+            }
+            if (i < count - 1 && __builtin_add_overflow(total_len, delim_len, &total_len)) {
+                errno = EOVERFLOW;
+                return NULL;
             }
         }
     }
     
-    // Create new string with calculated capacity
     String* result = string_with_capacity(total_len + 1);
     if (!result) return NULL;
     
-    // Join strings
     for (size_t i = 0; i < count; i++) {
         if (strs[i]) {
-            string_append(result, strs[i]);
-            
-            // Add delimiter except after the last element
-            if (i < count - 1) {
-                string_append_cstr(result, delim);
+            if (!string_append(result, strs[i])) {
+                string_free(result);
+                return NULL;
+            }
+            if (i < count - 1 && !string_append_cstr(result, delim)) {
+                string_free(result);
+                return NULL;
             }
         }
     }
@@ -399,82 +635,112 @@ String* string_join(String** strs, size_t count, const char* delim) {
 }
 
 bool string_replace(String* str, const char* old_str, const char* new_str) {
-    if (!str || !old_str || !new_str) return false;
+    if (!str || !old_str || !new_str || !str->length) return false;
     
     size_t old_len = strlen(old_str);
+    if (!old_len) return true;
+    
     size_t new_len = strlen(new_str);
+    const char* pos = STRING_DATA(str);
+    size_t count = 0;
     
-    // If the old string is empty, can't replace anything
-    if (old_len == 0) return true;
+    // Count occurrences and check for overflow
+    while ((pos = memmem(pos, str->length - (pos - STRING_DATA(str)), old_str, old_len))) {
+        count++;
+        pos += old_len;
+    }
     
-    // Create a new temporary buffer for the result
-    size_t result_capacity = str->length + 100;  // Extra capacity for growth
-    char* result = malloc(result_capacity);
-    if (!result) return false;
+    if (!count) return true;
     
-    size_t result_len = 0;
-    size_t search_pos = 0;
-    
-    // Replace all occurrences
-    char* found = strstr(str->data + search_pos, old_str);
-    
-    while (found) {
-        size_t pos = found - str->data;  // Calculate position of match
+    // Optimize for the case when new_len <= old_len (in-place replacement)
+    if (new_len <= old_len) {
+        char* write_pos = STRING_DATA(str);
+        const char* read_pos = STRING_DATA(str);
+        const char* end = STRING_DATA(str) + str->length;
         
-        // Ensure enough capacity in result buffer
-        if (result_len + (pos - search_pos) + new_len + 1 > result_capacity) {
-            result_capacity *= 2;
-            char* new_result = realloc(result, result_capacity);
-            if (!new_result) {
-                free(result);
-                return false;
+        while (read_pos < end) {
+            const char* match = memmem(read_pos, end - read_pos, old_str, old_len);
+            
+            if (!match) {
+                // No more matches, copy remaining data
+                size_t remaining = end - read_pos;
+                if (write_pos != read_pos) {
+                    memmove(write_pos, read_pos, remaining);
+                }
+                write_pos += remaining;
+                break;
             }
-            result = new_result;
+            
+            // Copy data before match
+            size_t prefix_len = match - read_pos;
+            if (prefix_len > 0) {
+                if (write_pos != read_pos) {
+                    memmove(write_pos, read_pos, prefix_len);
+                }
+                write_pos += prefix_len;
+            }
+            
+            // Insert replacement
+            memcpy(write_pos, new_str, new_len);
+            write_pos += new_len;
+            
+            // Move read pointer past the match
+            read_pos = match + old_len;
         }
         
-        // Copy part before the match
-        memcpy(result + result_len, str->data + search_pos, pos - search_pos);
-        result_len += (pos - search_pos);
+        // Null terminate and set new length
+        *write_pos = '\0';
+        str->length = write_pos - STRING_DATA(str);
         
-        // Copy the replacement
-        memcpy(result + result_len, new_str, new_len);
-        result_len += new_len;
-        
-        // Update search position
-        search_pos = pos + old_len;
-        
-        // Find next occurrence
-        found = strstr(str->data + search_pos, old_str);
-    }
-    
-    // Copy remaining part
-    size_t remaining = str->length - search_pos;
-    
-    // Ensure enough capacity for remaining text
-    if (result_len + remaining + 1 > result_capacity) {
-        result_capacity = result_len + remaining + 1;
-        char* new_result = realloc(result, result_capacity);
-        if (!new_result) {
-            free(result);
-            return false;
+        // Try to shrink to small string if possible
+        if (!str->is_small && str->length <= SSO_SIZE) {
+            try_shrink_to_small(str);
         }
-        result = new_result;
+        
+        return true;
     }
     
-    memcpy(result + result_len, str->data + search_pos, remaining);
-    result_len += remaining;
-    result[result_len] = '\0';
-    
-    // Ensure the original string has enough capacity
-    if (!ensure_capacity(str, result_len + 1)) {
-        free(result);
+    // Calculate new length with overflow checking
+    size_t new_total_len;
+    if (__builtin_mul_overflow(count, new_len, &new_total_len) ||
+        __builtin_add_overflow(str->length, new_total_len, &new_total_len) ||
+        __builtin_sub_overflow(new_total_len, count * old_len, &new_total_len)) {
+        errno = EOVERFLOW;
         return false;
     }
     
-    // Replace the original string
-    memcpy(str->data, result, result_len + 1);
-    str->length = result_len;
+    if (!ensure_capacity(str, new_total_len + 1)) return false;
     
-    free(result);
+    // Perform replacement from end to beginning
+    char* write_pos = STRING_DATA(str) + new_total_len;
+    const char* read_pos = STRING_DATA(str) + str->length;
+    const char* last_match = NULL;
+    
+    *write_pos = '\0';
+    while (read_pos > STRING_DATA(str)) {
+        const char* match = memmem(STRING_DATA(str), read_pos - STRING_DATA(str), old_str, old_len);
+        if (!match || match == last_match) break;
+        
+        size_t suffix_len = read_pos - (match + old_len);
+        write_pos -= suffix_len;
+        memcpy(write_pos, match + old_len, suffix_len);
+        
+        write_pos -= new_len;
+        memcpy(write_pos, new_str, new_len);
+        
+        read_pos = match;
+        last_match = match;
+    }
+    
+    if (read_pos > STRING_DATA(str)) {
+        memmove(STRING_DATA(str), STRING_DATA(str), read_pos - STRING_DATA(str));
+    }
+    
+    str->length = new_total_len;
     return true;
+}
+
+char string_char_at(const String* str, size_t index) {
+    if (!str || index >= str->length) return '\0';
+    return STRING_DATA(str)[index];
 }

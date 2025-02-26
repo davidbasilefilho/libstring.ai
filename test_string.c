@@ -25,7 +25,7 @@ void test_basic_operations() {
     print_string_info("New string", str);
     
     // Append to string
-    string_append_cstr(str, ", World!");
+    assert(string_append_cstr(str, ", World!"));
     print_string_info("After append", str);
     
     // Clear string
@@ -33,7 +33,7 @@ void test_basic_operations() {
     print_string_info("After clear", str);
     
     // Set new content
-    string_set(str, "Reset content");
+    assert(string_set(str, "Reset content"));
     print_string_info("After set", str);
     
     // Free string
@@ -62,7 +62,7 @@ void test_manipulation() {
     print_string_info("Lower case", str);
     
     // Replace substring
-    string_replace(str, "world", "C23");
+    assert(string_replace(str, "world", "C23"));
     print_string_info("After replace", str);
     
     // Free string
@@ -136,7 +136,7 @@ void test_edge_cases() {
     printf("string_is_empty(NULL) = %s\n", string_is_empty(NULL) ? "Yes" : "No");
     
     // Append to empty string
-    string_append_cstr(empty, "No longer empty");
+    assert(string_append_cstr(empty, "No longer empty"));
     print_string_info("After append to empty", empty);
     
     // Free string
@@ -190,7 +190,10 @@ void benchmark_append() {
     
     String* str = string_new("Initial content");
     for (size_t i = 0; i < iterations; i++) {
-        string_append_cstr(str, test_str);
+        if (!string_append_cstr(str, test_str)) {
+            printf("Error: append failed at iteration %zu\n", i);
+            break;
+        }
     }
     string_free(str);
     
@@ -231,7 +234,9 @@ void benchmark_manipulations() {
         string_trim(str);
         string_to_upper(str);
         string_to_lower(str);
-        string_replace(str, "test", "benchmark");
+        if (!string_replace(str, "test", "benchmark")) {
+            printf("Error: replace failed at iteration %zu\n", i);
+        }
         string_free(str);
     }
     
