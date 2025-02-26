@@ -11,7 +11,7 @@
 #include <unistd.h>   // For POSIX definitions including CLOCK_MONOTONIC
 
 // Utility function to print string info
-void print_string_info(const char* label, const String* str) {
+void print_string_info(const char* label, const string* str) {
     printf("%s: \"%s\" (length: %zu, capacity: %zu)\n", 
            label, string_cstr(str), string_length(str), string_capacity(str));
 }
@@ -21,7 +21,7 @@ void test_basic_operations() {
     printf("\n=== Basic String Operations ===\n");
     
     // Create a new string
-    String* str = string_new("Hello");
+    string* str = string_new("Hello");
     print_string_info("New string", str);
     
     // Append to string
@@ -46,7 +46,7 @@ void test_manipulation() {
     printf("\n=== String Manipulation ===\n");
     
     // Create test string
-    String* str = string_new("  Hello, World!  ");
+    string* str = string_new("  Hello, World!  ");
     print_string_info("Original", str);
     
     // Trim
@@ -73,11 +73,11 @@ void test_manipulation() {
 void test_substring() {
     printf("\n=== Substring Operations ===\n");
     
-    String* str = string_new("Hello, World! Welcome to C23.");
+    string* str = string_new("Hello, World! Welcome to C23.");
     print_string_info("Original", str);
     
     // Extract substring
-    String* sub = string_substr(str, 7, 5);
+    string* sub = string_substr(str, 7, 5);
     print_string_info("Substring", sub);
     
     // Find substring
@@ -97,12 +97,12 @@ void test_substring() {
 void test_split_join() {
     printf("\n=== Split and Join Operations ===\n");
     
-    String* str = string_new("apple,banana,orange,grape");
+    string* str = string_new("apple,banana,orange,grape");
     print_string_info("Original", str);
     
     // Split string
     size_t count = 0;
-    String** parts = string_split(str, ",", &count);
+    string** parts = string_split(str, ",", &count);
     printf("Split into %zu parts:\n", count);
     
     for (size_t i = 0; i < count; i++) {
@@ -110,7 +110,7 @@ void test_split_join() {
     }
     
     // Join with a different delimiter
-    String* joined = string_join(parts, count, " | ");
+    string* joined = string_join(parts, count, " | ");
     print_string_info("Joined with ' | '", joined);
     
     // Free all strings
@@ -128,7 +128,7 @@ void test_edge_cases() {
     printf("\n=== Error Handling and Edge Cases ===\n");
     
     // Empty string
-    String* empty = string_new("");
+    string* empty = string_new("");
     printf("Is empty string empty? %s\n", string_is_empty(empty) ? "Yes" : "No");
     
     // NULL checks
@@ -172,7 +172,7 @@ void benchmark_create_free() {
     long long start = get_time_ns();
     
     for (size_t i = 0; i < iterations; i++) {
-        String* str = string_new("Hello, World!");
+        string* str = string_new("Hello, World!");
         string_free(str);
     }
     
@@ -188,7 +188,7 @@ void benchmark_append() {
     const char* test_str = " additional text";
     long long start = get_time_ns();
     
-    String* str = string_new("Initial content");
+    string* str = string_new("Initial content");
     for (size_t i = 0; i < iterations; i++) {
         if (!string_append_cstr(str, test_str)) {
             printf("Error: append failed at iteration %zu\n", i);
@@ -206,7 +206,7 @@ void benchmark_append() {
  */
 void benchmark_find() {
     const size_t iterations = 100000;
-    String* str = string_new("This is a test string to search for substrings within");
+    string* str = string_new("This is a test string to search for substrings within");
     const char* needle = "string";
     long long start = get_time_ns();
     
@@ -230,7 +230,7 @@ void benchmark_manipulations() {
     long long start = get_time_ns();
     
     for (size_t i = 0; i < iterations; i++) {
-        String* str = string_new("  hello, World! This is a TEST string.  ");
+        string* str = string_new("  hello, World! This is a TEST string.  ");
         string_trim(str);
         string_to_upper(str);
         string_to_lower(str);
@@ -252,11 +252,11 @@ void benchmark_split_join() {
     long long start = get_time_ns();
     
     for (size_t i = 0; i < iterations; i++) {
-        String* str = string_new("one,two,three,four,five,six,seven");
+        string* str = string_new("one,two,three,four,five,six,seven");
         size_t count = 0;
-        String** parts = string_split(str, ",", &count);
+        string** parts = string_split(str, ",", &count);
         
-        String* joined = string_join(parts, count, "-");
+        string* joined = string_join(parts, count, "-");
         
         string_free(str);
         string_free(joined);

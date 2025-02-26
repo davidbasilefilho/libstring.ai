@@ -19,7 +19,7 @@
 #define STRING_CAPACITY(str) ((str)->is_small ? SSO_SIZE : (str)->heap.capacity)
 
 // Convert from heap to stack storage if possible
-static inline void try_shrink_to_small(String* str) {
+static inline void try_shrink_to_small(string* str) {
     if (!str || str->is_small || str->length > SSO_SIZE) return;
     
     char* old_data = str->heap.data;
@@ -29,7 +29,7 @@ static inline void try_shrink_to_small(String* str) {
 }
 
 // Convert from stack to heap storage when needed
-static inline bool convert_to_heap(String* str, size_t needed_capacity) {
+static inline bool convert_to_heap(string* str, size_t needed_capacity) {
     if (!str) return false;
     if (!str->is_small) return true;  // Already on heap
     
@@ -51,7 +51,7 @@ static inline bool convert_to_heap(String* str, size_t needed_capacity) {
     return true;
 }
 
-static inline bool ensure_capacity(String* str, size_t needed_capacity) {
+static inline bool ensure_capacity(string* str, size_t needed_capacity) {
     if (!str) return false;
     
     // Check if capacity is already sufficient
@@ -84,8 +84,8 @@ static inline bool ensure_capacity(String* str, size_t needed_capacity) {
     return true;
 }
 
-String* string_new(const char* initial_value) {
-    String* str = malloc(sizeof(String));
+string* string_new(const char* initial_value) {
+    string* str = malloc(sizeof(string));
     if (!str) return NULL;
     
     // Initialize as small string
@@ -103,8 +103,8 @@ String* string_new(const char* initial_value) {
     return str;
 }
 
-String* string_with_capacity(size_t capacity) {
-    String* str = malloc(sizeof(String));
+string* string_with_capacity(size_t capacity) {
+    string* str = malloc(sizeof(string));
     if (!str) return NULL;
     
     if (capacity <= SSO_SIZE) {
@@ -132,7 +132,7 @@ String* string_with_capacity(size_t capacity) {
     return str;
 }
 
-void string_free(String* str) {
+void string_free(string* str) {
     if (!str) return;
     if (!str->is_small) {
         free(str->heap.data);
@@ -141,28 +141,28 @@ void string_free(String* str) {
 }
 
 // Optimized core functions
-size_t string_length(const String* str) {
+size_t string_length(const string* str) {
     return str ? str->length : 0;
 }
 
-size_t string_capacity(const String* str) {
+size_t string_capacity(const string* str) {
     return str ? STRING_CAPACITY(str) : 0;
 }
 
-const char* string_cstr(const String* str) {
+const char* string_cstr(const string* str) {
     return str ? STRING_DATA(str) : NULL;
 }
 
-bool string_is_empty(const String* str) {
+bool string_is_empty(const string* str) {
     return !str || str->length == 0;
 }
 
-bool string_append(String* str, const String* other) {
+bool string_append(string* str, const string* other) {
     if (!str || !other) return false;
     return string_append_cstr(str, STRING_DATA(other));
 }
 
-bool string_append_cstr(String* str, const char* cstr) {
+bool string_append_cstr(string* str, const char* cstr) {
     if (!str || !cstr) return false;
     
     size_t cstr_len = strlen(cstr);
@@ -177,7 +177,7 @@ bool string_append_cstr(String* str, const char* cstr) {
     return true;
 }
 
-bool string_append_char(String* str, char c) {
+bool string_append_char(string* str, char c) {
     if (!str) return false;
     
     if (!ensure_capacity(str, str->length + 2)) {
@@ -189,7 +189,7 @@ bool string_append_char(String* str, char c) {
     return true;
 }
 
-bool string_set(String* str, const char* cstr) {
+bool string_set(string* str, const char* cstr) {
     if (!str || !cstr) return false;
     
     size_t cstr_len = strlen(cstr);
@@ -202,7 +202,7 @@ bool string_set(String* str, const char* cstr) {
     return true;
 }
 
-void string_clear(String* str) {
+void string_clear(string* str) {
     if (!str) return;
     STRING_DATA(str)[0] = '\0';
     str->length = 0;
@@ -211,7 +211,7 @@ void string_clear(String* str) {
 #ifdef __SSE4_2__
 #include <nmmintrin.h>
 // SSE4.2 optimized string compare
-int string_compare(const String* str1, const String* str2) {
+int string_compare(const string* str1, const string* str2) {
     if (!str1 && !str2) return 0;
     if (!str1) return -1;
     if (!str2) return 1;
@@ -256,7 +256,7 @@ int string_compare(const String* str1, const String* str2) {
 }
 
 // SSE4.2 optimized string equality check
-bool string_equals(const String* str1, const String* str2) {
+bool string_equals(const string* str1, const string* str2) {
     if (str1 == str2) return true;
     if (!str1 || !str2) return false;
     if (str1->length != str2->length) return false;
@@ -292,7 +292,7 @@ bool string_equals(const String* str1, const String* str2) {
 }
 
 // SSE4.2 optimized string find
-ptrdiff_t string_find_cstr(const String* str, const char* substr) {
+ptrdiff_t string_find_cstr(const string* str, const char* substr) {
     if (!str || !substr) return -1;
     
     size_t substr_len = strlen(substr);
@@ -348,7 +348,7 @@ ptrdiff_t string_find_cstr(const String* str, const char* substr) {
 }
 
 // SSE4.2 optimized string to uppercase
-void string_to_upper(String* str) {
+void string_to_upper(string* str) {
     if (!str || !str->length) return;
     
     const size_t len = str->length;
@@ -391,7 +391,7 @@ void string_to_upper(String* str) {
 }
 
 // SSE4.2 optimized string to lowercase
-void string_to_lower(String* str) {
+void string_to_lower(string* str) {
     if (!str || !str->length) return;
     
     const size_t len = str->length;
@@ -433,7 +433,7 @@ void string_to_lower(String* str) {
     }
 }
 #else
-int string_compare(const String* str1, const String* str2) {
+int string_compare(const string* str1, const string* str2) {
     if (!str1 && !str2) return 0;
     if (!str1) return -1;
     if (!str2) return 1;
@@ -441,14 +441,14 @@ int string_compare(const String* str1, const String* str2) {
                  (str1->length < str2->length) ? str1->length : str2->length);
 }
 
-bool string_equals(const String* str1, const String* str2) {
+bool string_equals(const string* str1, const string* str2) {
     if (str1 == str2) return true;
     if (!str1 || !str2) return false;
     return str1->length == str2->length && 
            memcmp(STRING_DATA(str1), STRING_DATA(str2), str1->length) == 0;
 }
 
-ptrdiff_t string_find_cstr(const String* str, const char* substr) {
+ptrdiff_t string_find_cstr(const string* str, const char* substr) {
     if (!str || !substr) return -1;
     
     char* found = memmem(STRING_DATA(str), str->length, substr, strlen(substr));
@@ -456,7 +456,7 @@ ptrdiff_t string_find_cstr(const String* str, const char* substr) {
 }
 
 // Standard implementations for systems without SSE4.2
-void string_to_upper(String* str) {
+void string_to_upper(string* str) {
     if (!str || !str->length) return;
     
     char* data = STRING_DATA(str);
@@ -465,7 +465,7 @@ void string_to_upper(String* str) {
     }
 }
 
-void string_to_lower(String* str) {
+void string_to_lower(string* str) {
     if (!str || !str->length) return;
     
     char* data = STRING_DATA(str);
@@ -477,7 +477,7 @@ void string_to_lower(String* str) {
 
 // Add an optimized trim function that automatically switches to small string
 // optimization when possible
-void string_trim(String* str) {
+void string_trim(string* str) {
     if (!str || !str->length) return;
     
     char *start = STRING_DATA(str);
@@ -527,11 +527,11 @@ void string_trim(String* str) {
     }
 }
 
-String* string_substr(const String* str, size_t start, size_t length) {
+string* string_substr(const string* str, size_t start, size_t length) {
     if (!str || start >= str->length) return NULL;
     
     length = (start + length > str->length) ? (str->length - start) : length;
-    String* result = string_with_capacity(length + 1);
+    string* result = string_with_capacity(length + 1);
     if (!result) return NULL;
     
     memcpy(STRING_DATA(result), STRING_DATA(str) + start, length);
@@ -540,7 +540,7 @@ String* string_substr(const String* str, size_t start, size_t length) {
     return result;
 }
 
-String** string_split(const String* str, const char* delim, size_t* count) {
+string** string_split(const string* str, const char* delim, size_t* count) {
     if (!str || !delim || !count || !str->length) {
         if (count) *count = 0;
         return NULL;
@@ -560,7 +560,7 @@ String** string_split(const String* str, const char* delim, size_t* count) {
         pos += delim_len;
     }
     
-    String** result = calloc(num_splits, sizeof(String*));
+    string** result = calloc(num_splits, sizeof(string*));
     if (!result) {
         if (count) *count = 0;
         return NULL;
@@ -596,7 +596,7 @@ String** string_split(const String* str, const char* delim, size_t* count) {
     return result;
 }
 
-String* string_join(String** strs, size_t count, const char* delim) {
+string* string_join(string** strs, size_t count, const char* delim) {
     if (!strs || !count || !delim) return NULL;
     
     size_t delim_len = strlen(delim);
@@ -615,7 +615,7 @@ String* string_join(String** strs, size_t count, const char* delim) {
         }
     }
     
-    String* result = string_with_capacity(total_len + 1);
+    string* result = string_with_capacity(total_len + 1);
     if (!result) return NULL;
     
     for (size_t i = 0; i < count; i++) {
@@ -634,7 +634,7 @@ String* string_join(String** strs, size_t count, const char* delim) {
     return result;
 }
 
-bool string_replace(String* str, const char* old_str, const char* new_str) {
+bool string_replace(string* str, const char* old_str, const char* new_str) {
     if (!str || !old_str || !new_str || !str->length) return false;
     
     size_t old_len = strlen(old_str);
@@ -740,7 +740,7 @@ bool string_replace(String* str, const char* old_str, const char* new_str) {
     return true;
 }
 
-char string_char_at(const String* str, size_t index) {
+char string_char_at(const string* str, size_t index) {
     if (!str || index >= str->length) return '\0';
     return STRING_DATA(str)[index];
 }

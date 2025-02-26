@@ -18,7 +18,7 @@ static_assert(__STDC_VERSION__ >= 201710L, "C2X or later is required");
 #define SSO_SIZE 23  // 23 bytes + null terminator for small strings
 
 /**
- * @brief String structure definition with small string optimization
+ * @brief string structure definition with small string optimization
  */
 typedef struct {
     union {
@@ -32,7 +32,7 @@ typedef struct {
     };
     size_t length;              // Current string length (for both heap and stack)
     uint8_t is_small:1;         // Flag for SSO - 1 if using stack storage
-} String;
+} string;
 
 // Compile-time constants
 #define STRING_MAX_LENGTH (SIZE_MAX - 1)
@@ -40,58 +40,58 @@ typedef struct {
 /**
  * @brief Initialize a new string
  * @param initial_value Initial string value (can be NULL)
- * @return New String instance or NULL if allocation fails
+ * @return New string instance or NULL if allocation fails
  */
-[[nodiscard]] String* string_new(const char* initial_value);
+[[nodiscard]] string* string_new(const char* initial_value);
 
 /**
  * @brief Create a string with a given capacity
  * @param capacity Initial capacity to allocate
- * @return New String instance or NULL if allocation fails
+ * @return New string instance or NULL if allocation fails
  */
-[[nodiscard]] String* string_with_capacity(size_t capacity);
+[[nodiscard]] string* string_with_capacity(size_t capacity);
 
 /**
  * @brief Free a string and its resources
- * @param str String to free
+ * @param str string to free
  */
-void string_free([[maybe_unused]] String* str);
+void string_free([[maybe_unused]] string* str);
 
 /**
  * @brief Get string length
  * @param str Target string
  * @return Length of the string
  */
-[[nodiscard]] size_t string_length(const String* str);
+[[nodiscard]] size_t string_length(const string* str);
 
 /**
  * @brief Get string capacity
  * @param str Target string
  * @return Capacity of the string
  */
-[[nodiscard]] size_t string_capacity(const String* str);
+[[nodiscard]] size_t string_capacity(const string* str);
 
 /**
  * @brief Get C-style string (null-terminated)
  * @param str Target string
  * @return Pointer to null-terminated string
  */
-[[nodiscard]] const char* string_cstr(const String* str);
+[[nodiscard]] const char* string_cstr(const string* str);
 
 /**
  * @brief Check if string is empty
  * @param str Target string
  * @return true if empty, false otherwise
  */
-[[nodiscard]] bool string_is_empty(const String* str);
+[[nodiscard]] bool string_is_empty(const string* str);
 
 /**
  * @brief Append string to another
  * @param str Target string
- * @param other String to append
+ * @param other string to append
  * @return true if successful, false if allocation fails
  */
-[[nodiscard]] bool string_append(String* str, const String* other);
+[[nodiscard]] bool string_append(string* str, const string* other);
 
 /**
  * @brief Append C-style string to string
@@ -99,7 +99,7 @@ void string_free([[maybe_unused]] String* str);
  * @param cstr C-style string to append
  * @return true if successful, false if allocation fails
  */
-[[nodiscard]] bool string_append_cstr(String* str, const char* cstr);
+[[nodiscard]] bool string_append_cstr(string* str, const char* cstr);
 
 /**
  * @brief Append character to string
@@ -107,7 +107,7 @@ void string_free([[maybe_unused]] String* str);
  * @param c Character to append
  * @return true if successful, false if allocation fails
  */
-[[nodiscard]] bool string_append_char(String* str, char c);
+[[nodiscard]] bool string_append_char(string* str, char c);
 
 /**
  * @brief Set string content
@@ -115,13 +115,13 @@ void string_free([[maybe_unused]] String* str);
  * @param cstr New string content
  * @return true if successful, false if allocation fails
  */
-[[nodiscard]] bool string_set(String* str, const char* cstr);
+[[nodiscard]] bool string_set(string* str, const char* cstr);
 
 /**
  * @brief Clear string content (set length to 0)
  * @param str Target string
  */
-void string_clear(String* str);
+void string_clear(string* str);
 
 /**
  * @brief Compare two strings
@@ -129,7 +129,7 @@ void string_clear(String* str);
  * @param str2 Second string
  * @return 0 if equal, <0 if str1 < str2, >0 if str1 > str2
  */
-[[nodiscard]] int string_compare(const String* str1, const String* str2);
+[[nodiscard]] int string_compare(const string* str1, const string* str2);
 
 /**
  * @brief Check if strings are equal
@@ -137,7 +137,7 @@ void string_clear(String* str);
  * @param str2 Second string
  * @return true if equal, false otherwise
  */
-[[nodiscard]] bool string_equals(const String* str1, const String* str2);
+[[nodiscard]] bool string_equals(const string* str1, const string* str2);
 
 /**
  * @brief Get character at index
@@ -145,7 +145,7 @@ void string_clear(String* str);
  * @param index Index of character to get
  * @return Character at index or '\0' if index out of bounds
  */
-[[nodiscard]] char string_char_at(const String* str, size_t index);
+[[nodiscard]] char string_char_at(const string* str, size_t index);
 
 /**
  * @brief Find substring in string
@@ -153,7 +153,7 @@ void string_clear(String* str);
  * @param substr Substring to find
  * @return Index of first occurrence or -1 if not found
  */
-[[nodiscard]] ptrdiff_t string_find(const String* str, const String* substr);
+[[nodiscard]] ptrdiff_t string_find(const string* str, const string* substr);
 
 /**
  * @brief Find C-style substring in string
@@ -161,43 +161,43 @@ void string_clear(String* str);
  * @param substr C-style substring to find
  * @return Index of first occurrence or -1 if not found
  */
-[[nodiscard]] ptrdiff_t string_find_cstr(const String* str, const char* substr);
+[[nodiscard]] ptrdiff_t string_find_cstr(const string* str, const char* substr);
 
 /**
  * @brief Create substring
  * @param str Source string
  * @param start Start index
  * @param length Length of substring
- * @return New String instance with substring or NULL if allocation fails
+ * @return New string instance with substring or NULL if allocation fails
  */
-[[nodiscard]] String* string_substr(const String* str, size_t start, size_t length);
+[[nodiscard]] string* string_substr(const string* str, size_t start, size_t length);
 
 /**
  * @brief Trim whitespace from both ends
  * @param str Target string
  */
-void string_trim(String* str);
+void string_trim(string* str);
 
 /**
  * @brief Convert string to uppercase
  * @param str Target string
  */
-void string_to_upper(String* str);
+void string_to_upper(string* str);
 
 /**
  * @brief Convert string to lowercase
  * @param str Target string
  */
-void string_to_lower(String* str);
+void string_to_lower(string* str);
 
 /**
  * @brief Split string by delimiter
  * @param str Target string
  * @param delim Delimiter
  * @param count Pointer to store number of splits
- * @return Array of String pointers or NULL if allocation fails
+ * @return Array of string pointers or NULL if allocation fails
  */
-[[nodiscard]] String** string_split(const String* str, const char* delim, size_t* count);
+[[nodiscard]] string** string_split(const string* str, const char* delim, size_t* count);
 
 /**
  * @brief Join strings with delimiter
@@ -206,7 +206,7 @@ void string_to_lower(String* str);
  * @param delim Delimiter
  * @return New joined string or NULL if allocation fails
  */
-[[nodiscard]] String* string_join(String** strs, size_t count, const char* delim);
+[[nodiscard]] string* string_join(string** strs, size_t count, const char* delim);
 
 /**
  * @brief Replace substring
@@ -215,6 +215,6 @@ void string_to_lower(String* str);
  * @param new_str Replacement
  * @return true if successful, false if allocation fails
  */
-[[nodiscard]] bool string_replace(String* str, const char* old_str, const char* new_str);
+[[nodiscard]] bool string_replace(string* str, const char* old_str, const char* new_str);
 
 #endif /* STRING_LIB_H */

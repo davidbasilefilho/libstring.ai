@@ -84,6 +84,7 @@ gcc -o your_program your_program.c -lstring
 ### Test System Specifications
 - CPU: AMD Ryzen 7 5700X
 - Memory: 2x8GB DDR4-3200MHz CL16
+- Operating System: Fedora 41
 
 ### Performance Results
 ```
