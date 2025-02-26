@@ -79,6 +79,25 @@ When compiling your program, link against the library:
 gcc -o your_program your_program.c -lstring
 ```
 
+## Benchmarks
+
+### Test System Specifications
+- CPU: AMD Ryzen 7 5700X
+- Memory: 2x8GB DDR4-3200MHz CL16
+
+### Performance Results
+```
+Operation            |  Time (ms)    |      Ops/sec         | Iterations
+---------------------------------------------------------------------------------
+Create/Free          |      1.544 ms |     64785092 ops/sec |   100000 iterations
+Append               |      0.672 ms |     74424365 ops/sec |    50000 iterations
+Find                 |      2.187 ms |     45720389 ops/sec |   100000 iterations
+Manipulations        |      1.869 ms |      5349507 ops/sec |    10000 iterations
+Split/Join           |      2.592 ms |      3858123 ops/sec |    10000 iterations
+```
+
+The benchmarks demonstrate the library's high performance, with basic operations like string creation and append achieving over 64 million operations per second. Even more complex operations like string manipulations and split/join operations maintain impressive throughput of several million operations per second.
+
 ## Development Notes
 
 This project was ENTIRELY developed using AI tools:
