@@ -9,8 +9,7 @@ CFLAGS_COMMON = -std=c2x -Wall -Wextra -pedantic -fPIC
 CFLAGS_DEBUG = $(CFLAGS_COMMON) -g -O0 -DDEBUG
 # Enhanced optimization flags for release builds
 CFLAGS_RELEASE = $(CFLAGS_COMMON) \
-    -O3
-\
+    -O3 \
     -march=native \
     -mtune=native \
     -flto \
